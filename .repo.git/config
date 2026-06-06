@@ -1,0 +1,9 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	worktree = /home/xcd/ai-agent/openclaw-deploy
+[remote "origin"]
+	url = https://github.com/mailliw2010/edge-vision-openclaw-env.git
+	fetch = +refs/heads/*:refs/remotes/origin/*

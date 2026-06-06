@@ -1,0 +1,4 @@
+services:
+  openclaw-gateway:
+    devices:
+      - ${OPENCLAW_DRI_DEVICE:-/dev/dri}:/dev/dri

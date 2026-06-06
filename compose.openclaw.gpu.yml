@@ -1,0 +1,6 @@
+services:
+  openclaw-gateway:
+    gpus: ${OPENCLAW_GPUS:-all}
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility,video}
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
