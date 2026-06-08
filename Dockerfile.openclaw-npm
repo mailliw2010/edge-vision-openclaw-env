@@ -30,6 +30,7 @@ RUN sed -i \
 	  && npm install -g "openclaw@${OPENCLAW_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
 	  && groupadd -g 1002 xcd \
 	  && useradd -m -u 1002 -g 1002 -s /bin/bash node \
+	  && passwd -d node \
 	  && mkdir -p /home/node/.openclaw /home/node/.config/openclaw /run/sshd /etc/ssh/sshd_config.d \
 	  && printf '%s\n' \
 	      'PermitRootLogin no' \
