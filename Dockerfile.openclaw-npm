@@ -13,39 +13,42 @@ RUN sed -i \
       -e 's@http://security.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
       /etc/apt/sources.list \
   && apt-get update \
-	  && apt-get install -y --no-install-recommends \
-	      bash \
-	      ca-certificates \
-	      curl \
-	      git \
-	      gosu \
-	      openssh-client \
-	      openssh-server \
-	      python3 \
-	      ripgrep \
-	      xz-utils \
+  && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      gosu \
+      openssh-client \
+      openssh-server \
+      python3 \
+      ripgrep \
+      sudo \
+      xz-utils \
   && curl -fsSL "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
       | tar -xJ -C /usr/local --strip-components=1 \
   && npm config set registry https://registry.npmmirror.com \
-	  && npm install -g "openclaw@${OPENCLAW_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
-	  && groupadd -g 1002 xcd \
-	  && useradd -m -u 1002 -g 1002 -s /bin/bash node \
-	  && passwd -d node \
-	  && mkdir -p /home/node/.openclaw /home/node/.config/openclaw /run/sshd /etc/ssh/sshd_config.d \
-	  && printf '%s\n' \
-	      'PermitRootLogin no' \
-	      'PasswordAuthentication no' \
-	      'KbdInteractiveAuthentication no' \
-	      'PubkeyAuthentication yes' \
-	      'AuthorizedKeysFile .ssh/authorized_keys' \
-	      'AllowUsers node' \
-	      'X11Forwarding no' \
-	      'AllowTcpForwarding yes' \
-	      'UsePAM no' \
-	      > /etc/ssh/sshd_config.d/openclaw.conf \
-	  && chown -R 1002:1002 /home/node \
-	  && apt-get clean \
-	  && rm -rf /var/lib/apt/lists/*
+  && npm install -g "openclaw@${OPENCLAW_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
+  && groupadd -g 1002 xcd \
+  && useradd -m -u 1002 -g 1002 -s /bin/bash node \
+  && passwd -d node \
+  && printf '%s\n' 'node ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/node \
+  && chmod 0440 /etc/sudoers.d/node \
+  && mkdir -p /home/node/.openclaw /home/node/.config/openclaw /run/sshd /etc/ssh/sshd_config.d \
+  && printf '%s\n' \
+      'PermitRootLogin no' \
+      'PasswordAuthentication no' \
+      'KbdInteractiveAuthentication no' \
+      'PubkeyAuthentication yes' \
+      'AuthorizedKeysFile .ssh/authorized_keys' \
+      'AllowUsers node' \
+      'X11Forwarding no' \
+      'AllowTcpForwarding yes' \
+      'UsePAM no' \
+      > /etc/ssh/sshd_config.d/openclaw.conf \
+  && chown -R 1002:1002 /home/node \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY docker-entrypoint.sh /usr/local/bin/openclaw-docker-entrypoint
 RUN chmod 755 /usr/local/bin/openclaw-docker-entrypoint

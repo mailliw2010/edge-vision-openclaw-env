@@ -43,6 +43,7 @@ The private key is required for `git pull` over SSH. The `authorized_keys` file 
 ## Build The Image
 
 Build the image only when `Dockerfile.openclaw-npm` or `docker-entrypoint.sh` changes.
+The development image grants passwordless `sudo` to the `node` user so repo bootstrap scripts can restore apt-level dependencies after container rebuilds.
 
 ```bash
 cd /home/xcd/ai-agent/openclaw-deploy
