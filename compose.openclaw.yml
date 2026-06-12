@@ -35,12 +35,15 @@ services:
       https_proxy: ${https_proxy:-}
       all_proxy: ${all_proxy:-}
       no_proxy: ${no_proxy:-}
-      TZ: ${OPENCLAW_TZ:-UTC}
+      LANG: C.UTF-8
+      TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
       - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR}:/home/node/.config/openclaw
       - ${OPENCLAW_SSH_DIR:-/home/xcd/.openclaw-docker/ssh}:/home/node/.ssh
+      - ${OPENCLAW_VSCODE_SERVER_DIR:-/home/xcd/.openclaw-docker/vscode-server}:/home/node/.vscode-server
+      - ${OPENCLAW_VSCODE_CODEX_DIR:-/home/xcd/.openclaw-docker/vscode-codex}:/home/node/.codex
     cap_drop:
       - NET_RAW
       - NET_ADMIN
@@ -56,6 +59,10 @@ services:
       - "${OPENCLAW_SSH_PORT:-127.0.0.1:2222}:22"
     init: true
     restart: unless-stopped
+    ######## add for gpu use
+    privileged: true
+    gpus: all
+    ######## add for gpu use
     command:
       [
         "openclaw",
