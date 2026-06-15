@@ -1,0 +1,164 @@
+FROM ubuntu:22.04
+
+ARG NODE_VERSION=22.21.1
+ARG OPENCLAW_VERSION=2026.5.28
+ARG CODEX_CLI_VERSION=0.135.0
+ARG PNPM_VERSION=10.14.0
+ARG GO_VERSION=1.26.0
+ARG PROTOC_GEN_GO_VERSION=v1.34.2
+ARG PROTOC_GEN_GO_GRPC_VERSION=v1.4.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+# SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# easily for debug
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+# This image merges the current OpenClaw gateway base with the runtime/dev
+# dependencies used by edge-vision-runtime's bootstrap script. NVIDIA driver
+# libraries are provided by the host runtime; GStreamer/FFmpeg user-space
+# codec plugins are installed here when the configured Ubuntu repo provides them.
+RUN sed -i \
+      -e 's@http://archive.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
+      -e 's@http://security.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
+      /etc/apt/sources.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+      bash \
+      build-essential \
+      ca-certificates \
+      ccache \
+      cmake \
+      curl \
+      ffmpeg \
+      git \
+      gnupg \
+      gosu \
+      gstreamer1.0-libav \
+      gstreamer1.0-plugins-bad \
+      gstreamer1.0-plugins-base \
+      gstreamer1.0-plugins-good \
+      gstreamer1.0-plugins-ugly \
+      gstreamer1.0-tools \
+      jq \
+      libavcodec-dev \
+      libavdevice-dev \
+      libavfilter-dev \
+      libavformat-dev \
+      libavutil-dev \
+      libdrm-dev \
+      libgstreamer1.0-dev \
+      libgstreamer-plugins-bad1.0-dev \
+      libgstreamer-plugins-base1.0-dev \
+      libgrpc++-dev \
+      libjpeg-dev \
+      libprotobuf-dev \
+      libswscale-dev \
+      libvdpau-dev \
+      lsb-release \
+      make \
+      ninja-build \
+      openssh-client \
+      openssh-server \
+      pkg-config \
+      postgresql-client \
+      protobuf-compiler \
+      protobuf-compiler-grpc \
+      python3 \
+      python3-pip \
+      python3-venv \
+      ripgrep \
+      socat \
+      sudo \
+      unzip \
+      wget \
+      xz-utils \
+  && optional_packages=" \
+        gstreamer1.0-nvcodec \
+        gstreamer1.0-cuda \
+        gstreamer1.0-nvidia \
+        gstreamer1.0-vaapi \
+        libffmpeg-nvenc-dev \
+        nv-codec-headers \
+        libva-dev \
+        libva-drm2 \
+        libva-x11-2 \
+        mesa-va-drivers \
+        vainfo \
+        vdpauinfo \
+      " \
+  && install_packages="" \
+  && for package in ${optional_packages}; do \
+        if apt-cache show "${package}" >/dev/null 2>&1; then \
+          install_packages="${install_packages} ${package}"; \
+        else \
+          printf 'skip unavailable apt package: %s\n' "${package}"; \
+        fi; \
+      done \
+  && if [ -n "${install_packages}" ]; then \
+        apt-get install -y --no-install-recommends ${install_packages}; \
+      fi \
+  && node_archive=/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz \
+  && rm -f "${node_archive}" \
+  && for url in \
+        "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      ; do \
+        printf 'download node from %s\n' "${url}"; \
+        if curl -fL --retry 5 --retry-all-errors --connect-timeout 10 --max-time 300 \
+            -o "${node_archive}" "${url}"; then \
+          break; \
+        fi; \
+      done \
+  && test -s "${node_archive}" \
+  && tar -xJf "${node_archive}" -C /usr/local --strip-components=1 \
+  && rm -f "${node_archive}" \
+  && npm config set registry https://registry.npmmirror.com \
+  && npm install -g "openclaw@${OPENCLAW_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
+  && npm install -g "pnpm@${PNPM_VERSION}" \
+  && curl -fsSL --retry 5 --retry-all-errors \
+       -o /tmp/go.tar.gz \
+       "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz" \
+  && tar -xzf /tmp/go.tar.gz -C /usr/local \
+  && rm -f /tmp/go.tar.gz \
+  && GOBIN=/usr/local/bin GOPROXY="${GOPROXY}" GOSUMDB="${GOSUMDB}" \
+      go install "google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}" \
+  && GOBIN=/usr/local/bin GOPROXY="${GOPROXY}" GOSUMDB="${GOSUMDB}" \
+      go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}" \
+  && groupadd -g 1002 xcd \
+  && useradd -m -u 1002 -g 1002 -s /bin/bash node \
+  && passwd -d node \
+  && printf '%s\n' 'node ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/node \
+  && chmod 0440 /etc/sudoers.d/node \
+  && mkdir -p /home/node/.openclaw /home/node/.config/openclaw /run/sshd /etc/ssh/sshd_config.d \
+  && printf '%s\n' \
+      'PermitRootLogin no' \
+      'PasswordAuthentication no' \
+      'KbdInteractiveAuthentication no' \
+      'PubkeyAuthentication yes' \
+      'AuthorizedKeysFile .ssh/authorized_keys' \
+      'AllowUsers node' \
+      'X11Forwarding no' \
+      'AllowTcpForwarding yes' \
+      'UsePAM no' \
+      > /etc/ssh/sshd_config.d/openclaw.conf \
+  && chown -R 1002:1002 /home/node \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# # if extra depends are needed, add them here
+# RUN apt-get update \
+#   && apt-get install -y --no-install-recommends \
+#       xxx \
+#   && apt-get clean \
+#   && rm -rf /var/lib/apt/lists/*
+
+COPY docker-entrypoint.sh /usr/local/bin/openclaw-docker-entrypoint
+RUN chmod 755 /usr/local/bin/openclaw-docker-entrypoint
+
+WORKDIR /home/node/.openclaw/workspace
+ENTRYPOINT ["openclaw-docker-entrypoint"]

@@ -14,6 +14,7 @@ The gateway container starts as root only long enough to launch `sshd` and prepa
 ## Files
 
 - `Dockerfile.openclaw-npm` builds the OpenClaw/Codex image.
+- `Dockerfile.openclaw-evr-dev` builds a combined OpenClaw + edge-vision-runtime dev image.
 - `compose.openclaw.yml` starts the normal OpenClaw gateway and CLI sidecar.
 - `compose.openclaw.gpu.yml` adds NVIDIA CUDA/NVDEC passthrough.
 - `compose.openclaw.dri.yml` adds `/dev/dri` passthrough for VAAPI/DRI hardware decode.
@@ -42,12 +43,47 @@ The private key is required for `git pull` over SSH. The `authorized_keys` file 
 
 ## Build The Image
 
-Build the image only when `Dockerfile.openclaw-npm` or `docker-entrypoint.sh` changes.
+Build the image only when `Dockerfile.openclaw-npm`, `Dockerfile.openclaw-evr-dev`, or
+`docker-entrypoint.sh` changes.
 The development image grants passwordless `sudo` to the `node` user so repo bootstrap scripts can restore apt-level dependencies after container rebuilds.
 
 ```bash
 cd /home/xcd/ai-agent/openclaw-deploy
 
+docker compose \
+  -f compose.openclaw.yml \
+  build openclaw-gateway
+```
+
+for quick debug:
+```
+docker compose build --no-cache --progress=plain openclaw-gateway 2>&1 | tee /tmp/openclaw-build.log
+```
+
+By default, `compose.openclaw.yml` now builds `Dockerfile.openclaw-evr-dev` as
+`openclaw-evr-dev:2026.5.28`. To build it directly without Compose:
+
+```bash
+cd /home/xcd/ai-agent/openclaw-deploy
+
+docker build \
+  -f Dockerfile.openclaw-evr-dev \
+  -t openclaw-evr-dev:2026.5.28 \
+  .
+```
+
+After the build, inspect the incremental layer sizes with:
+
+```bash
+docker history --no-trunc openclaw-evr-dev:2026.5.28
+docker image inspect openclaw-evr-dev:2026.5.28 --format '{{.Size}}'
+```
+
+To build the smaller OpenClaw-only image instead:
+
+```bash
+OPENCLAW_IMAGE=openclaw-npm:2026.5.28 \
+OPENCLAW_DOCKERFILE=Dockerfile.openclaw-npm \
 docker compose \
   --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
@@ -142,9 +178,14 @@ Verify inside the container:
 
 ```bash
 docker exec openclaw-openclaw-gateway-1 nvidia-smi
+docker exec openclaw-openclaw-gateway-1 ffmpeg -hide_banner -decoders
+docker exec openclaw-openclaw-gateway-1 ffmpeg -hide_banner -encoders
+docker exec openclaw-openclaw-gateway-1 gst-inspect-1.0 nvh264dec
 ```
 
 If `nvidia-smi` fails on the host, it will also fail in Docker. Fix the host NVIDIA driver/runtime first.
+On x86 NVIDIA servers, prefer checking `nvh264dec` / `nvh265dec` and FFmpeg `cuvid` / `nvenc`.
+Jetson-specific `nvv4l2decoder` / `nvvidconv` are not expected on a normal RTX server image.
 
 ## Start With CUDA And Hardware Decode
 
@@ -176,6 +217,8 @@ Verify:
 ```bash
 docker exec openclaw-openclaw-gateway-1 nvidia-smi
 docker exec openclaw-openclaw-gateway-1 ls -l /dev/dri
+docker exec openclaw-openclaw-gateway-1 ffmpeg -hide_banner -hwaccels
+docker exec openclaw-openclaw-gateway-1 gst-inspect-1.0 nvh264dec
 ```
 
 ## Stop
@@ -204,7 +247,17 @@ docker compose \
 
 ## Notes
 
+- `OPENCLAW_GATEWAY_PORT` defaults to `127.0.0.1:18789`.
+- `OPENCLAW_BRIDGE_PORT` defaults to `127.0.0.1:18790`.
+- `OPENCLAW_MSTEAMS_PORT` defaults to `127.0.0.1:3978`.
 - `OPENCLAW_SSH_PORT` defaults to `127.0.0.1:2222`.
+- Common business/debug ports are mapped on localhost by default:
+  - `OPENCLAW_WEB_PORT` -> `3000`
+  - `OPENCLAW_VITE_PORT` -> `5173`
+  - `OPENCLAW_API_PORT` -> `8000`
+  - `OPENCLAW_ADMIN_PORT` -> `8080`
+  - `OPENCLAW_DEBUG_PORT` -> `9229`
+  - `OPENCLAW_METRICS_PORT` -> `9090`
 - `OPENCLAW_SSH_DIR` defaults to `/home/xcd/.openclaw-docker/ssh`.
 - `OPENCLAW_GPUS` defaults to `all`.
 - `NVIDIA_DRIVER_CAPABILITIES` defaults to `compute,utility,video`.

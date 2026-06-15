@@ -3,6 +3,7 @@ FROM ubuntu:22.04
 ARG NODE_VERSION=22.21.1
 ARG OPENCLAW_VERSION=2026.5.28
 ARG CODEX_CLI_VERSION=0.135.0
+ARG PNPM_VERSION=10.14.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -25,10 +26,24 @@ RUN sed -i \
       ripgrep \
       sudo \
       xz-utils \
-  && curl -fsSL "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
-      | tar -xJ -C /usr/local --strip-components=1 \
+  && node_archive=/tmp/node-v${NODE_VERSION}-linux-x64.tar.xz \
+  && rm -f "${node_archive}" \
+  && for url in \
+        "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      ; do \
+        printf 'download node from %s\n' "${url}"; \
+        if curl -fL --retry 5 --retry-all-errors --connect-timeout 10 --max-time 300 \
+            -o "${node_archive}" "${url}"; then \
+          break; \
+        fi; \
+      done \
+  && test -s "${node_archive}" \
+  && tar -xJf "${node_archive}" -C /usr/local --strip-components=1 \
+  && rm -f "${node_archive}" \
   && npm config set registry https://registry.npmmirror.com \
   && npm install -g "openclaw@${OPENCLAW_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
+  && npm install -g "pnpm@${PNPM_VERSION}" \
   && groupadd -g 1002 xcd \
   && useradd -m -u 1002 -g 1002 -s /bin/bash node \
   && passwd -d node \

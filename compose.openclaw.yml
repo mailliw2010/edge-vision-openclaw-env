@@ -1,11 +1,24 @@
 name: openclaw
 
+x-openclaw-ports: &openclaw-ports
+  - "${OPENCLAW_GATEWAY_PORT:-127.0.0.1:18789}:18789"
+  - "${OPENCLAW_BRIDGE_PORT:-127.0.0.1:18790}:18790"
+  - "${OPENCLAW_MSTEAMS_PORT:-127.0.0.1:3978}:3978"
+  - "${OPENCLAW_SSH_PORT:-127.0.0.1:2222}:22"
+
+  - "${OPENCLAW_WEB_PORT:-127.0.0.1:3001}:3000"
+  - "${OPENCLAW_VITE_PORT:-127.0.0.1:5173}:5173"
+  - "${OPENCLAW_API_PORT:-127.0.0.1:8001}:8000"
+  - "${OPENCLAW_ADMIN_PORT:-127.0.0.1:8081}:8080"
+  - "${OPENCLAW_DEBUG_PORT:-127.0.0.1:9229}:9229"
+  - "${OPENCLAW_METRICS_PORT:-127.0.0.1:9090}:9090"
+
 services:
   openclaw-gateway:
-    image: ${OPENCLAW_IMAGE:-openclaw-npm:2026.5.28}
+    image: ${OPENCLAW_IMAGE:-openclaw-evr-dev:2026.5.28}
     build:
       context: .
-      dockerfile: Dockerfile.openclaw-npm
+      dockerfile: ${OPENCLAW_DOCKERFILE:-Dockerfile.openclaw-evr-dev}
     user: ${OPENCLAW_GATEWAY_RUN_USER:-0:0}
     environment:
       HOME: /home/node
@@ -52,17 +65,9 @@ services:
       - apparmor=unconfined
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      - "${OPENCLAW_GATEWAY_PORT:-127.0.0.1:18789}:18789"
-      - "${OPENCLAW_BRIDGE_PORT:-127.0.0.1:18790}:18790"
-      - "${OPENCLAW_MSTEAMS_PORT:-127.0.0.1:3978}:3978"
-      - "${OPENCLAW_SSH_PORT:-127.0.0.1:2222}:22"
+    ports: *openclaw-ports
     init: true
     restart: unless-stopped
-    ######## add for gpu use
-    privileged: true
-    gpus: all
-    ######## add for gpu use
     command:
       [
         "openclaw",
@@ -86,7 +91,7 @@ services:
       start_period: 20s
 
   openclaw-cli:
-    image: ${OPENCLAW_IMAGE:-openclaw-npm:2026.5.28}
+    image: ${OPENCLAW_IMAGE:-openclaw-evr-dev:2026.5.28}
     user: ${OPENCLAW_RUN_USER:-1002:1002}
     network_mode: "service:openclaw-gateway"
     environment:
