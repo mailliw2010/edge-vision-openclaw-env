@@ -63,6 +63,12 @@ docker compose build --no-cache --progress=plain openclaw-gateway 2>&1 | tee /tm
 By default, `compose.openclaw.yml` now builds `Dockerfile.openclaw-evr-dev` as
 `openclaw-evr-dev:2026.5.28`. To build it directly without Compose:
 
+`Dockerfile.openclaw-evr-dev` defaults to
+`nvcr.io/nvidia/tensorrt:25.09-py3`, which matches hosts such as
+`Driver Version: 580.82.09` / `CUDA Version: 13.0`. Override
+`TENSORRT_BASE_IMAGE` only when the host driver is compatible with the selected
+CUDA/TensorRT container.
+
 ```bash
 cd /home/xcd/ai-agent/openclaw-deploy
 
@@ -95,6 +101,55 @@ After rebuilding and recreating the containers, remove old dangling images:
 ```bash
 docker image prune -f
 ```
+
+## Production Image Strategy
+
+The current `Dockerfile.openclaw-evr-dev` is a development image. It is based on
+the TensorRT/CUDA container and includes build tools, headers, SSH, sudo, and
+debug-friendly dependencies. Do not use it directly as the long-term production
+runtime image.
+
+For production, prefer a stable runtime base image plus a thin business artifact
+layer:
+
+```text
+Dockerfile.openclaw-evr-runtime
+Dockerfile.openclaw-evr-prod
+compose.openclaw.prod.yml
+```
+
+The runtime base should change rarely. Keep only the CUDA/TensorRT runtime,
+OpenClaw runtime dependencies, media/runtime libraries, certificates, timezone
+data, and the unprivileged runtime user. Exclude compilers, `cmake`, `ninja`,
+`git`, `openssh-server`, `sudo`, samples, docs, test data, and `*-dev` packages
+unless a production process truly needs them.
+
+The production image should then inherit from that runtime base and add only
+business artifacts:
+
+```dockerfile
+FROM openclaw-evr-runtime:25.09
+
+WORKDIR /app
+COPY dist/ /app/
+COPY package.json pnpm-lock.yaml /app/
+RUN pnpm install --prod --frozen-lockfile
+
+USER node
+CMD ["node", "/app/server.js"]
+```
+
+If the business service has compiled Go/C++/Node native artifacts, build them in
+a separate builder image and copy the final binaries, shared libraries, and
+static assets into `Dockerfile.openclaw-evr-prod`. Keep model files, weights,
+large media, and generated caches outside the image; mount them as volumes or
+fetch them from object storage during deployment.
+
+Production compose files should map only required service ports and should not
+enable SSH, broad debug ports, passwordless sudo, or development-only bind
+mounts. Keep the dev compose files optimized for debugging and the prod compose
+files optimized for repeatable rollout, smaller image size, and tighter runtime
+surface.
 
 ## Start Normal Container
 

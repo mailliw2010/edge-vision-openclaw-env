@@ -12,6 +12,8 @@ x-openclaw-ports: &openclaw-ports
   - "${OPENCLAW_ADMIN_PORT:-127.0.0.1:8081}:8080"
   - "${OPENCLAW_DEBUG_PORT:-127.0.0.1:9229}:9229"
   - "${OPENCLAW_METRICS_PORT:-127.0.0.1:9090}:9090"
+  - "${OPENCLAW_OBSERVE_AGENT_PORT:-127.0.0.1:8011}:8090"
+  - "${OPENCLAW_ZML_PORT:-127.0.0.1:82}:81"
 
 services:
   openclaw-gateway:

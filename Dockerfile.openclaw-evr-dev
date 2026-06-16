@@ -1,4 +1,5 @@
-FROM ubuntu:22.04
+ARG TENSORRT_BASE_IMAGE=nvcr.io/nvidia/tensorrt:25.09-py3
+FROM ${TENSORRT_BASE_IMAGE}
 
 ARG NODE_VERSION=22.21.1
 ARG OPENCLAW_VERSION=2026.5.28
@@ -18,14 +19,16 @@ ENV GOSUMDB=sum.golang.google.cn
 # easily for debug
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
-# This image merges the current OpenClaw gateway base with the runtime/dev
-# dependencies used by edge-vision-runtime's bootstrap script. NVIDIA driver
-# libraries are provided by the host runtime; GStreamer/FFmpeg user-space
-# codec plugins are installed here when the configured Ubuntu repo provides them.
-RUN sed -i \
-      -e 's@http://archive.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
-      -e 's@http://security.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
-      /etc/apt/sources.list \
+# This image merges the TensorRT/CUDA dev base with the OpenClaw gateway and
+# edge-vision-runtime dependencies. NVIDIA driver libraries are provided by the
+# host runtime; GStreamer/FFmpeg user-space codec plugins are installed here
+# when the configured Ubuntu repo provides them.
+RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.sources' \) -print0 \
+      | xargs -0 -r sed -i \
+          -e 's@http://archive.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
+          -e 's@https://archive.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
+          -e 's@http://security.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
+          -e 's@https://security.ubuntu.com/ubuntu@http://mirrors.aliyun.com/ubuntu@g' \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
       bash \
