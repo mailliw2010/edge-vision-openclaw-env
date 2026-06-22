@@ -8,6 +8,7 @@ The container is designed to be disposable. Persistent state is mounted from the
 - Workspace: `${OPENCLAW_WORKSPACE_DIR}`
 - OpenClaw auth profile secrets: `${OPENCLAW_AUTH_PROFILE_SECRET_DIR}`
 - SSH keys/config: `${OPENCLAW_SSH_DIR:-/home/xcd/.openclaw-docker/ssh}`
+- Codex config and profiles: `${OPENCLAW_VSCODE_CODEX_DIR:-/home/xcd/.openclaw-docker/vscode-codex}`
 
 The gateway container starts as root only long enough to launch `sshd` and prepare mounted device/SSH permissions. The OpenClaw process then runs as `node:xcd`.
 
@@ -16,6 +17,7 @@ The gateway container starts as root only long enough to launch `sshd` and prepa
 - `Dockerfile.openclaw-npm` builds the OpenClaw/Codex image.
 - `Dockerfile.openclaw-evr-dev` builds a combined OpenClaw + edge-vision-runtime dev image.
 - `compose.openclaw.yml` starts the normal OpenClaw gateway and CLI sidecar.
+- `middleware/compose.openclaw.middleware.yml` starts PostgreSQL, MinIO, RabbitMQ, Redis, and ZLMediaKit on the same `openclaw` network.
 - `compose.openclaw.gpu.yml` adds NVIDIA CUDA/NVDEC passthrough.
 - `compose.openclaw.dri.yml` adds `/dev/dri` passthrough for VAAPI/DRI hardware decode.
 - `docker-entrypoint.sh` starts `sshd`, prepares SSH permissions, persists SSH host keys, and drops to `node:xcd`.
@@ -40,6 +42,71 @@ chmod 644 /home/xcd/.openclaw-docker/ssh/known_hosts 2>/dev/null || true
 ```
 
 The private key is required for `git pull` over SSH. The `authorized_keys` file is required for SSH login into the container.
+
+## Fast Model Switch
+
+Use the mounted `CODEX_HOME` directory to keep one Codex profile per provider.
+The CLI loads `config.toml` as the default and `--profile <name>` layers
+`$CODEX_HOME/<name>.config.toml` on top of it, so switching is a profile change.
+
+Create these files under `${OPENCLAW_CODEX_HOME_DIR:-/home/xcd/.openclaw-docker/codex-home}`:
+
+- `config.toml`: your default provider, for example `aixhan`
+- `openai.config.toml`: official OpenAI key and endpoint
+- `aixhan.config.toml`: your current provider
+- `openrouter.config.toml`: any OpenAI-compatible fallback provider
+
+Example `openai.config.toml`:
+
+```toml
+model_provider = "OpenAI"
+model = "gpt-5.4-mini"
+
+[model_providers.OpenAI]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+env_key = "OPENAI_API_KEY"
+requires_openai_auth = true
+```
+
+Example `aixhan.config.toml`:
+
+```toml
+model_provider = "Aixhan"
+model = "gpt-5.4-mini"
+
+[model_providers.Aixhan]
+name = "Aixhan"
+base_url = "https://api.aixhan.com/v1"
+env_key = "AIXHAN_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+Example `openrouter.config.toml`:
+
+```toml
+model_provider = "OpenRouter"
+model = "gpt-5.4-mini"
+
+[model_providers.OpenRouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+env_key = "OPENROUTER_API_KEY"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+Switch at runtime with:
+
+```bash
+codex --profile openai
+codex --profile aixhan
+codex --profile openrouter
+```
+
+For OpenClaw-backed sessions, restart the container after changing the active
+profile or default `config.toml` so the gateway picks up the new provider.
 
 ## Build The Image
 
@@ -173,8 +240,47 @@ ssh -p 2222 node@127.0.0.1
 Check OpenClaw:
 
 ```bash
-docker exec openclaw-openclaw-gateway-1 openclaw channels list
+docker compose -f compose.openclaw.yml exec openclaw-gateway openclaw channels list
 ```
+
+## Start Middleware
+
+Use this when you want the control-plane storage and media services on the same
+Docker network as the OpenClaw services. Business services and middleware now
+use different Compose project names, but both attach to the shared
+`openclaw-shared` network automatically.
+
+If the shared network does not exist yet, create it once:
+
+```bash
+docker network create openclaw-shared
+```
+
+```bash
+cd /home/xcd/ai-agent/openclaw-deploy/middleware
+
+docker compose -f compose.openclaw.middleware.yml up -d
+```
+
+The file exposes these services:
+
+- PostgreSQL on `127.0.0.1:5432`
+- MinIO API on `127.0.0.1:9000` and console on `127.0.0.1:9001`
+- RabbitMQ AMQP on `127.0.0.1:5672` and management UI on `127.0.0.1:15672`
+- Redis on the internal Compose network as `redis:6379`
+- ZLMediaKit RTMP on `127.0.0.1:1935`, HTTP on `127.0.0.1:8082`, and RTSP on `127.0.0.1:8555`
+
+Each middleware service keeps its bind-mounted state inside `middleware/<service>/...`.
+Key files are:
+
+- `middleware/.env`
+- `middleware/postgres/postgresql.conf`
+- `middleware/postgres/pg_hba.conf`
+- `middleware/minio/minio.env`
+- `middleware/rabbitmq/conf.d/10-defaults.conf`
+- `middleware/rabbitmq/enabled_plugins`
+- `middleware/redis/redis.conf`
+- `middleware/zlmediakit/config.ini`
 
 ## Start With Hardware Decode
 
@@ -201,7 +307,7 @@ docker compose \
 Verify inside the container:
 
 ```bash
-docker exec openclaw-openclaw-gateway-1 ls -l /dev/dri
+docker compose -f compose.openclaw.yml exec openclaw-gateway ls -l /dev/dri
 ```
 
 If your app uses FFmpeg or VAAPI tools, install those in the image or your app environment and verify with the relevant command, for example `ffmpeg -hwaccels` or `vainfo`.
@@ -232,10 +338,10 @@ docker compose \
 Verify inside the container:
 
 ```bash
-docker exec openclaw-openclaw-gateway-1 nvidia-smi
-docker exec openclaw-openclaw-gateway-1 ffmpeg -hide_banner -decoders
-docker exec openclaw-openclaw-gateway-1 ffmpeg -hide_banner -encoders
-docker exec openclaw-openclaw-gateway-1 gst-inspect-1.0 nvh264dec
+docker compose -f compose.openclaw.yml exec openclaw-gateway nvidia-smi
+docker compose -f compose.openclaw.yml exec openclaw-gateway ffmpeg -hide_banner -decoders
+docker compose -f compose.openclaw.yml exec openclaw-gateway ffmpeg -hide_banner -encoders
+docker compose -f compose.openclaw.yml exec openclaw-gateway gst-inspect-1.0 nvh264dec
 ```
 
 If `nvidia-smi` fails on the host, it will also fail in Docker. Fix the host NVIDIA driver/runtime first.
@@ -270,10 +376,10 @@ docker compose \
 Verify:
 
 ```bash
-docker exec openclaw-openclaw-gateway-1 nvidia-smi
-docker exec openclaw-openclaw-gateway-1 ls -l /dev/dri
-docker exec openclaw-openclaw-gateway-1 ffmpeg -hide_banner -hwaccels
-docker exec openclaw-openclaw-gateway-1 gst-inspect-1.0 nvh264dec
+docker compose -f compose.openclaw.yml exec openclaw-gateway nvidia-smi
+docker compose -f compose.openclaw.yml exec openclaw-gateway ls -l /dev/dri
+docker compose -f compose.openclaw.yml exec openclaw-gateway ffmpeg -hide_banner -hwaccels
+docker compose -f compose.openclaw.yml exec openclaw-gateway gst-inspect-1.0 nvh264dec
 ```
 
 ## Stop
@@ -314,6 +420,14 @@ docker compose \
   - `OPENCLAW_DEBUG_PORT` -> `9229`
   - `OPENCLAW_METRICS_PORT` -> `9090`
 - `OPENCLAW_SSH_DIR` defaults to `/home/xcd/.openclaw-docker/ssh`.
+- `OPENCLAW_VSCODE_CODEX_DIR` defaults to `/home/xcd/.openclaw-docker/vscode-codex`.
+- `OPENCLAW_CODEX_HOME_DIR` defaults to `/home/xcd/.openclaw-docker/codex-home`.
+- Redis connection defaults for OpenClaw containers:
+  - `OPENCLAW_REDIS_URL` defaults to `redis://redis:6379/0`
+  - `OPENCLAW_REDIS_HOST` defaults to `redis`
+  - `OPENCLAW_REDIS_PORT` defaults to `6379`
+  - `OPENCLAW_REDIS_DB` defaults to `0`
+  - `OPENCLAW_REDIS_PASSWORD` defaults to empty
 - `OPENCLAW_GPUS` defaults to `all`.
 - `NVIDIA_DRIVER_CAPABILITIES` defaults to `compute,utility,video`.
 - `OPENCLAW_DRI_DEVICE` defaults to `/dev/dri`.

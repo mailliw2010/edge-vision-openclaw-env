@@ -1,4 +1,4 @@
-name: openclaw
+name: openclaw-app
 
 x-openclaw-ports: &openclaw-ports
   - "${OPENCLAW_GATEWAY_PORT:-127.0.0.1:18789}:18789"
@@ -38,6 +38,11 @@ services:
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
       OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
+      OPENCLAW_REDIS_URL: ${OPENCLAW_REDIS_URL:-redis://redis:6379/0}
+      OPENCLAW_REDIS_HOST: ${OPENCLAW_REDIS_HOST:-redis}
+      OPENCLAW_REDIS_PORT: ${OPENCLAW_REDIS_PORT:-6379}
+      OPENCLAW_REDIS_DB: ${OPENCLAW_REDIS_DB:-0}
+      OPENCLAW_REDIS_PASSWORD: ${OPENCLAW_REDIS_PASSWORD:-}
       XDG_CACHE_HOME: /home/node/.openclaw/cache
       npm_config_cache: /home/node/.openclaw/npm-cache
       PNPM_HOME: /home/node/.openclaw/pnpm
@@ -111,6 +116,11 @@ services:
       OPENCLAW_ENABLE_SSHD: "0"
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      OPENCLAW_REDIS_URL: ${OPENCLAW_REDIS_URL:-redis://redis:6379/0}
+      OPENCLAW_REDIS_HOST: ${OPENCLAW_REDIS_HOST:-redis}
+      OPENCLAW_REDIS_PORT: ${OPENCLAW_REDIS_PORT:-6379}
+      OPENCLAW_REDIS_DB: ${OPENCLAW_REDIS_DB:-0}
+      OPENCLAW_REDIS_PASSWORD: ${OPENCLAW_REDIS_PASSWORD:-}
       BROWSER: echo
       XDG_CACHE_HOME: /home/node/.openclaw/cache
       npm_config_cache: /home/node/.openclaw/npm-cache
@@ -139,3 +149,8 @@ services:
     entrypoint: ["openclaw"]
     depends_on:
       - openclaw-gateway
+
+networks:
+  default:
+    external: true
+    name: openclaw-shared
