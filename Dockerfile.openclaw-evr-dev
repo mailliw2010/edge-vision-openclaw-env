@@ -156,6 +156,7 @@ RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.sources' \) -print
 # if extra depends are needed, add them here
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
+      locales \
       iproute2 \
       vim \
   && apt-get clean \
@@ -163,6 +164,22 @@ RUN apt-get update \
 
 COPY docker-entrypoint.sh /usr/local/bin/openclaw-docker-entrypoint
 RUN chmod 755 /usr/local/bin/openclaw-docker-entrypoint
+
+RUN install -d -o node -g xcd /home/node/go /home/node/go/bin /home/node/.cache/go-build /home/node/.config/go /home/node/.local/bin \
+  && gosu node:xcd bash -lc 'go env -w GOPATH=/home/node/go GOCACHE=/home/node/.cache/go-build GOPROXY=https://goproxy.cn,direct GOSUMDB=sum.golang.google.cn' \
+  && echo 'C.UTF-8 UTF-8' >> /etc/locale.gen \
+  && locale-gen C.UTF-8 \
+  && update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+  && printf '%s\n' \
+      'export LANG=C.UTF-8' \
+      'export LC_ALL=C.UTF-8' \
+      'export GOPATH=/home/node/go' \
+      'export GOCACHE=/home/node/.cache/go-build' \
+      'export GOPROXY=https://goproxy.cn,direct' \
+      'export GOSUMDB=sum.golang.google.cn' \
+      'export PATH=/home/node/go/bin:/usr/local/go/bin:$PATH' \
+      > /etc/profile.d/go-node.sh \
+  && chmod 0644 /etc/profile.d/go-node.sh
 
 WORKDIR /home/node/.openclaw/workspace
 ENTRYPOINT ["openclaw-docker-entrypoint"]
