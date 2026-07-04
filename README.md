@@ -7,41 +7,131 @@ The container is designed to be disposable. Persistent state is mounted from the
 - OpenClaw state: `${OPENCLAW_CONFIG_DIR}`
 - Workspace: `${OPENCLAW_WORKSPACE_DIR}`
 - OpenClaw auth profile secrets: `${OPENCLAW_AUTH_PROFILE_SECRET_DIR}`
-- SSH keys/config: `${OPENCLAW_SSH_DIR:-/home/xcd/.openclaw-docker/ssh}`
-- Codex config and profiles: `${OPENCLAW_VSCODE_CODEX_DIR:-/home/xcd/.openclaw-docker/vscode-codex}`
+- SSH keys/config: `${OPENCLAW_SSH_DIR:-${HOME}/.openclaw-docker/ssh}`
+- Git credentials store: `${OPENCLAW_GIT_CREDENTIALS_FILE_HOST:-${HOME}/.openclaw-docker/git-credentials}`
+- Codex config and profiles: `${OPENCLAW_VSCODE_CODEX_DIR:-${HOME}/.openclaw-docker/vscode-codex}`
 
-The gateway container starts as root only long enough to launch `sshd` and prepare mounted device/SSH permissions. The OpenClaw process then runs as `node:xcd`.
+The gateway container starts as root only long enough to launch `sshd`, align the container `node` UID/GID with the host, add configured supplemental groups such as the shared `evp` Git group, and prepare mounted device/SSH permissions. The OpenClaw process then runs as `node` inside `/home/node`.
 
 ## Files
 
 - `Dockerfile.openclaw-npm` builds the OpenClaw/Codex image.
 - `Dockerfile.openclaw-evr-dev` builds a combined OpenClaw + edge-vision-runtime dev image.
-- `compose.openclaw.yml` starts the normal OpenClaw gateway and CLI sidecar.
+- `compose.openclaw.yml` starts the normal OpenClaw gateway.
 - `middleware/compose.openclaw.middleware.yml` starts PostgreSQL, MinIO, RabbitMQ, Redis, and ZLMediaKit on the same `openclaw` network.
 - `compose.openclaw.gpu.yml` adds NVIDIA CUDA/NVDEC passthrough.
 - `compose.openclaw.dri.yml` adds `/dev/dri` passthrough for VAAPI/DRI hardware decode.
-- `docker-entrypoint.sh` starts `sshd`, prepares SSH permissions, persists SSH host keys, and drops to `node:xcd`.
+- `docker-entrypoint.sh` starts `sshd`, prepares SSH permissions, persists SSH host keys, adds shared/device supplemental groups, and drops to `node` inside `/home/node`.
+- `bootstrap-startup.sh` is the host-side orchestration entrypoint.
+- `init-phase1-middleware.sh` bootstraps control-plane data after middleware is up.
 
 ## Prepare SSH Persistence
 
 Run this once on the host:
 
 ```bash
-mkdir -p /home/xcd/.openclaw-docker/ssh
-chmod 700 /home/xcd/.openclaw-docker/ssh
+mkdir -p "${HOME}/.openclaw-docker/ssh"
+chmod 700 "${HOME}/.openclaw-docker/ssh"
 
-cp /home/xcd/.ssh/id_ed25519 /home/xcd/.openclaw-docker/ssh/
-cp /home/xcd/.ssh/id_ed25519.pub /home/xcd/.openclaw-docker/ssh/
-cp /home/xcd/.ssh/id_ed25519.pub /home/xcd/.openclaw-docker/ssh/authorized_keys
-cp /home/xcd/.ssh/known_hosts /home/xcd/.openclaw-docker/ssh/ 2>/dev/null || true
+cp "${HOME}/.ssh/id_ed25519" "${HOME}/.openclaw-docker/ssh/"
+cp "${HOME}/.ssh/id_ed25519.pub" "${HOME}/.openclaw-docker/ssh/"
+cp "${HOME}/.ssh/id_ed25519.pub" "${HOME}/.openclaw-docker/ssh/authorized_keys"
+cp "${HOME}/.ssh/known_hosts" "${HOME}/.openclaw-docker/ssh/" 2>/dev/null || true
 
-chmod 600 /home/xcd/.openclaw-docker/ssh/id_ed25519
-chmod 644 /home/xcd/.openclaw-docker/ssh/id_ed25519.pub
-chmod 600 /home/xcd/.openclaw-docker/ssh/authorized_keys
-chmod 644 /home/xcd/.openclaw-docker/ssh/known_hosts 2>/dev/null || true
+chmod 600 "${HOME}/.openclaw-docker/ssh/id_ed25519"
+chmod 644 "${HOME}/.openclaw-docker/ssh/id_ed25519.pub"
+chmod 600 "${HOME}/.openclaw-docker/ssh/authorized_keys"
+chmod 644 "${HOME}/.openclaw-docker/ssh/known_hosts" 2>/dev/null || true
 ```
 
 The private key is required for `git pull` over SSH. The `authorized_keys` file is required for SSH login into the container.
+
+If you use `git config --global credential.helper store`, the container now persists
+`~/.git-credentials` to `${HOME}/.openclaw-docker/git-credentials` on the host by default.
+
+## Shared Git Permissions
+
+When multiple host users, for example `xcd` and `zwx`, need to push their own
+branches into the same bind-mounted local repository, do not switch ownership
+back and forth with `chown -R <user>:<user>`. Use a shared group instead.
+
+The default shared group name is `evp`. Create it once on the host and add each
+collaborating user:
+
+```bash
+sudo groupadd -f evp
+sudo usermod -aG evp xcd
+sudo usermod -aG evp zwx
+```
+
+Each user must log in again, or restart the relevant shell/container session,
+before the new group membership is visible:
+
+```bash
+id xcd
+id zwx
+```
+
+Set the shared repository tree to group `evp` and make directories inherit that
+group:
+
+```bash
+sudo chgrp -R evp /home/xcd/ai-agent/openclaw-deploy/volume
+sudo chmod -R g+rwX /home/xcd/ai-agent/openclaw-deploy/volume
+sudo find /home/xcd/ai-agent/openclaw-deploy/volume -type d -exec chmod g+s {} +
+```
+
+If ACLs are available, add default ACLs so tools that create files with a
+restrictive umask still keep group write access:
+
+```bash
+sudo setfacl -R -m g:evp:rwx /home/xcd/ai-agent/openclaw-deploy/volume
+sudo setfacl -R -d -m g:evp:rwx /home/xcd/ai-agent/openclaw-deploy/volume
+```
+
+Configure shared Git repository behavior:
+
+```bash
+find /home/xcd/ai-agent/openclaw-deploy/volume -mindepth 2 -maxdepth 2 -name .git -type d -print0 \
+  | while IFS= read -r -d '' gitdir; do
+      repo="${gitdir%/.git}"
+      git --git-dir="$gitdir" config core.sharedRepository group
+    done
+```
+
+Git also requires each user to explicitly trust a repository owned by another
+UID. Add `safe.directory` in each user's own Git global config. Configure the
+repository root, not the `.git` subdirectory:
+
+```bash
+sudo -u xcd git config --global --add safe.directory /home/xcd/ai-agent/openclaw-deploy/volume/edge-vision-control-plane
+sudo -u zwx git config --global --add safe.directory /home/xcd/ai-agent/openclaw-deploy/volume/edge-vision-control-plane
+```
+
+Inside containers, use the container path:
+
+```bash
+git config --global --add safe.directory /home/node/public/shared/git/edge-vision-control-plane
+```
+
+`bootstrap-startup.sh` resolves `OPENCLAW_SHARED_GROUP` to
+`OPENCLAW_SHARED_GID` on the host. The default group is `evp`. On container
+startup, `docker-entrypoint.sh` creates or reuses that GID inside the container
+and adds `node` as a supplemental member. The primary `node` UID/GID still
+follows the host user that launched the stack.
+
+Override the shared group only when needed:
+
+```bash
+OPENCLAW_SHARED_GROUP=evp ./bootstrap-startup.sh recreate
+```
+
+If `docker-entrypoint.sh` changed, use `rebuild` instead of `recreate` so the
+new entrypoint is copied into the image:
+
+```bash
+./bootstrap-startup.sh rebuild
+```
 
 ## Fast Model Switch
 
@@ -49,12 +139,18 @@ Use the mounted `CODEX_HOME` directory to keep one Codex profile per provider.
 The CLI loads `config.toml` as the default and `--profile <name>` layers
 `$CODEX_HOME/<name>.config.toml` on top of it, so switching is a profile change.
 
-Create these files under `${OPENCLAW_CODEX_HOME_DIR:-/home/xcd/.openclaw-docker/codex-home}`:
+Create these files under `${OPENCLAW_CODEX_HOME_DIR:-${HOME}/.openclaw-docker/codex-home}`:
 
-- `config.toml`: your default provider, for example `aixhan`
-- `openai.config.toml`: official OpenAI key and endpoint
-- `aixhan.config.toml`: your current provider
-- `openrouter.config.toml`: any OpenAI-compatible fallback provider
+- `config.toml`: default provider, now `aixhan`
+- `aixhan.config.toml`: explicit `--profile aixhan` override
+- `openai.config.toml`: explicit `--profile openai` override
+- `openrouter.config.toml`: explicit `--profile openrouter` override
+- `auth.json`: shared auth store for the active `CODEX_HOME`
+- `openai.auth.json` and `openrouter.auth.json`: provider-specific auth templates
+
+This repository includes the same layout under [`codex-home/`](./codex-home); copy or
+mount that directory into your active `CODEX_HOME` if you want `codex` to pick up
+the templates directly.
 
 Example `openai.config.toml`:
 
@@ -100,6 +196,7 @@ requires_openai_auth = true
 Switch at runtime with:
 
 ```bash
+codex
 codex --profile openai
 codex --profile aixhan
 codex --profile openrouter
@@ -113,10 +210,25 @@ profile or default `config.toml` so the gateway picks up the new provider.
 Build the image only when `Dockerfile.openclaw-npm`, `Dockerfile.openclaw-evr-dev`, or
 `docker-entrypoint.sh` changes.
 The development image grants passwordless `sudo` to the `node` user so repo bootstrap scripts can restore apt-level dependencies after container rebuilds.
+If you start or build with raw `docker compose` commands, export
+`OPENCLAW_NODE_UID="$(id -u)"`, `OPENCLAW_NODE_GID="$(id -g)"`,
+`OPENCLAW_SHARED_GROUP`, and `OPENCLAW_SHARED_GID` first.
+`bootstrap-startup.sh` now fills these automatically.
+
+When `docker-entrypoint.sh` changes, prefer the host-side wrapper so the image is
+rebuilt and the service is recreated in one step:
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
+./bootstrap-startup.sh rebuild
+```
 
+```bash
+cd "${HOME}/ai-agent/openclaw-deploy"
+
+OPENCLAW_NODE_UID="$(id -u)" \
+OPENCLAW_NODE_GID="$(id -g)" \
+OPENCLAW_SHARED_GROUP="${OPENCLAW_SHARED_GROUP:-evp}" \
+OPENCLAW_SHARED_GID="$(getent group "${OPENCLAW_SHARED_GROUP:-evp}" | cut -d: -f3)" \
 docker compose \
   -f compose.openclaw.yml \
   build openclaw-gateway
@@ -137,13 +249,20 @@ By default, `compose.openclaw.yml` now builds `Dockerfile.openclaw-evr-dev` as
 CUDA/TensorRT container.
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
+cd "${HOME}/ai-agent/openclaw-deploy"
 
 docker build \
   -f Dockerfile.openclaw-evr-dev \
   -t openclaw-evr-dev:2026.5.28 \
+  --build-arg NODE_UID="$(id -u)" \
+  --build-arg NODE_GID="$(id -g)" \
   .
 ```
+
+Direct `docker build` only sets the image's default `node` UID/GID. The shared
+group is a runtime setting passed through Compose as `OPENCLAW_SHARED_GROUP` and
+`OPENCLAW_SHARED_GID`; `docker-entrypoint.sh` adds `node` to that supplemental
+group when the container starts.
 
 After the build, inspect the incremental layer sizes with:
 
@@ -158,7 +277,6 @@ To build the smaller OpenClaw-only image instead:
 OPENCLAW_IMAGE=openclaw-npm:2026.5.28 \
 OPENCLAW_DOCKERFILE=Dockerfile.openclaw-npm \
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   build openclaw-gateway
 ```
@@ -223,10 +341,9 @@ surface.
 Use this when you do not need GPU or hardware video decode passthrough.
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
+cd "${HOME}/ai-agent/openclaw-deploy"
 
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   up -d --no-build --force-recreate
 ```
@@ -257,10 +374,30 @@ docker network create openclaw-shared
 ```
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy/middleware
+cd "${HOME}/ai-agent/openclaw-deploy/middleware"
 
 docker compose -f compose.openclaw.middleware.yml up -d
 ```
+
+For a single host-side entrypoint, run `./bootstrap-startup.sh` from the
+repository root. It loads the root `.env`, creates the configured host mount
+directories, starts middleware, starts the business stack, and then runs
+`init-phase1-middleware.sh`.
+
+Supported commands:
+
+```bash
+./bootstrap-startup.sh start      # start services without rebuilding, then run phase-1 init
+./bootstrap-startup.sh status     # show compose service status
+./bootstrap-startup.sh stop       # stop compose services
+./bootstrap-startup.sh restart    # restart compose services
+./bootstrap-startup.sh recreate   # recreate services without rebuilding, then run phase-1 init
+./bootstrap-startup.sh rebuild    # rebuild images, recreate services, then run phase-1 init
+```
+
+Use `rebuild` after changing files copied into the image, such as
+`docker-entrypoint.sh`. Use `recreate` for Compose/environment changes that do
+not require rebuilding the image.
 
 The file exposes these services:
 
@@ -273,7 +410,7 @@ The file exposes these services:
 Each middleware service keeps its bind-mounted state inside `middleware/<service>/...`.
 Key files are:
 
-- `middleware/.env`
+- `.env`
 - `middleware/postgres/postgresql.conf`
 - `middleware/postgres/pg_hba.conf`
 - `middleware/minio/minio.env`
@@ -295,10 +432,9 @@ ls -l /dev/dri
 Start:
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
+cd "${HOME}/ai-agent/openclaw-deploy"
 
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   -f compose.openclaw.dri.yml \
   up -d --no-build --force-recreate
@@ -326,10 +462,9 @@ docker info | grep -i nvidia
 Start:
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
+cd "${HOME}/ai-agent/openclaw-deploy"
 
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   -f compose.openclaw.gpu.yml \
   up -d --no-build --force-recreate
@@ -363,10 +498,9 @@ ls -l /dev/dri
 Start:
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
+cd "${HOME}/ai-agent/openclaw-deploy"
 
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   -f compose.openclaw.gpu.yml \
   -f compose.openclaw.dri.yml \
@@ -390,7 +524,6 @@ Normal:
 
 ```bash
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   down
 ```
@@ -399,7 +532,6 @@ CUDA and DRI:
 
 ```bash
 docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
   -f compose.openclaw.yml \
   -f compose.openclaw.gpu.yml \
   -f compose.openclaw.dri.yml \
@@ -408,26 +540,26 @@ docker compose \
 
 ## Notes
 
+- Root `.env` is the single source of truth for host mounts, business ports, middleware ports, and standard runtime variables.
+- `OPENCLAW_TENANT` is normalized to lowercase kebab-case and directly drives the default PostgreSQL database, MinIO bucket, RabbitMQ vhost, and Redis key prefix/DB.
+- Standard runtime variables are grouped at the top of `.env`: `LANG`, `TZ`, and proxy variables like `HTTP_PROXY` / `http_proxy`.
+- Business variables are grouped in the middle of `.env`: gateway image, bind ports, workspace mounts, and Codex-related paths.
+- Middleware variables are grouped at the bottom of `.env`: PostgreSQL, MinIO, RabbitMQ, and ZLMediaKit settings.
 - `OPENCLAW_GATEWAY_PORT` defaults to `127.0.0.1:18789`.
 - `OPENCLAW_BRIDGE_PORT` defaults to `127.0.0.1:18790`.
 - `OPENCLAW_MSTEAMS_PORT` defaults to `127.0.0.1:3978`.
 - `OPENCLAW_SSH_PORT` defaults to `127.0.0.1:2222`.
-- Common business/debug ports are mapped on localhost by default:
-  - `OPENCLAW_WEB_PORT` -> `3000`
-  - `OPENCLAW_VITE_PORT` -> `5173`
-  - `OPENCLAW_API_PORT` -> `8000`
-  - `OPENCLAW_ADMIN_PORT` -> `8080`
-  - `OPENCLAW_DEBUG_PORT` -> `9229`
-  - `OPENCLAW_METRICS_PORT` -> `9090`
-- `OPENCLAW_SSH_DIR` defaults to `/home/xcd/.openclaw-docker/ssh`.
-- `OPENCLAW_VSCODE_CODEX_DIR` defaults to `/home/xcd/.openclaw-docker/vscode-codex`.
-- `OPENCLAW_CODEX_HOME_DIR` defaults to `/home/xcd/.openclaw-docker/codex-home`.
-- Redis connection defaults for OpenClaw containers:
-  - `OPENCLAW_REDIS_URL` defaults to `redis://redis:6379/0`
-  - `OPENCLAW_REDIS_HOST` defaults to `redis`
-  - `OPENCLAW_REDIS_PORT` defaults to `6379`
-  - `OPENCLAW_REDIS_DB` defaults to `0`
-  - `OPENCLAW_REDIS_PASSWORD` defaults to empty
+- `OPENCLAW_SSH_DIR_HOST` defaults to `${HOME}/.openclaw-docker/ssh`.
+- `OPENCLAW_GIT_CREDENTIALS_FILE_HOST` defaults to `${HOME}/.openclaw-docker/git-credentials`.
+- `OPENCLAW_VSCODE_CODEX_DIR_HOST` defaults to `${HOME}/.openclaw-docker/vscode-codex`.
+- `OPENCLAW_CODEX_HOME_DIR` defaults to `${HOME}/.openclaw-docker/codex-home`.
+- `OPENCLAW_SHARED_GROUP` defaults to `evp`; `bootstrap-startup.sh` resolves it to `OPENCLAW_SHARED_GID`.
+- `OPENCLAW_SHARED_GID` can be set explicitly when the shared group cannot be resolved by name on the host.
+- `OPENCLAW_REDIS_URL` defaults to `redis://redis:6379/0`.
+- `OPENCLAW_REDIS_HOST` defaults to `redis`.
+- `OPENCLAW_REDIS_PORT` defaults to `6379`.
+- `OPENCLAW_REDIS_DB` defaults to `0`.
+- `OPENCLAW_REDIS_PASSWORD` defaults to empty.
 - `OPENCLAW_GPUS` defaults to `all`.
 - `NVIDIA_DRIVER_CAPABILITIES` defaults to `compute,utility,video`.
 - `OPENCLAW_DRI_DEVICE` defaults to `/dev/dri`.

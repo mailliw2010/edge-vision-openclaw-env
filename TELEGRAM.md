@@ -4,14 +4,14 @@ This deployment does not require `TELEGRAM_BOT_TOKEN` in Docker Compose. Use a t
 
 ## Paths
 
-- Deployment directory: `/home/xcd/ai-agent/openclaw-deploy`
-- Host token file: `/home/xcd/.openclaw-docker/auth/telegram-bot-token`
+- Deployment directory: `${HOME}/ai-agent/openclaw-deploy`
+- Host token file: `${HOME}/.openclaw-docker/auth/telegram-bot-token`
 - Container token file: `/home/node/.config/openclaw/telegram-bot-token`
 
 The host auth directory is already mounted into the container:
 
 ```text
-/home/xcd/.openclaw-docker/auth -> /home/node/.config/openclaw
+${HOME}/.openclaw-docker/auth -> /home/node/.config/openclaw
 ```
 
 ## 1. Create A Telegram Bot
@@ -26,16 +26,16 @@ For direct messages, open a chat with the new bot and send `/start`.
 
 ## 2. Store The Token On The Host
 
-Run this on the server as user `xcd`:
+Run this on the host:
 
 ```bash
-install -d -m 700 /home/xcd/.openclaw-docker/auth
+install -d -m 700 "${HOME}/.openclaw-docker/auth"
 
 read -rsp 'Telegram bot token: ' TELEGRAM_BOT_TOKEN
 printf '\n'
 
-printf '%s\n' "$TELEGRAM_BOT_TOKEN" > /home/xcd/.openclaw-docker/auth/telegram-bot-token
-chmod 600 /home/xcd/.openclaw-docker/auth/telegram-bot-token
+printf '%s\n' "$TELEGRAM_BOT_TOKEN" > "${HOME}/.openclaw-docker/auth/telegram-bot-token"
+chmod 600 "${HOME}/.openclaw-docker/auth/telegram-bot-token"
 unset TELEGRAM_BOT_TOKEN
 ```
 
@@ -53,12 +53,8 @@ docker exec openclaw-openclaw-gateway-1 \
 Then restart the gateway:
 
 ```bash
-cd /home/xcd/ai-agent/openclaw-deploy
-
-docker compose \
-  --env-file /home/xcd/.openclaw-docker/env/openclaw.env \
-  -f compose.openclaw.yml \
-  restart openclaw-gateway
+cd "${HOME}/ai-agent/openclaw-deploy"
+./bootstrap-startup.sh
 ```
 
 ## 4. Verify

@@ -12,7 +12,7 @@ services:
       - -c
       - listen_addresses=*
     environment:
-      POSTGRES_DB: ${OPENCLAW_POSTGRES_DB:-openclaw}
+      POSTGRES_DB: ${OPENCLAW_POSTGRES_BOOTSTRAP_DB:-openclaw}
       POSTGRES_USER: ${OPENCLAW_POSTGRES_USER:-openclaw}
       POSTGRES_PASSWORD: ${OPENCLAW_POSTGRES_PASSWORD:-openclaw}
       PGDATA: /var/lib/postgresql/data/pgdata
@@ -67,7 +67,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${OPENCLAW_RABBITMQ_USER:-openclaw}
       RABBITMQ_DEFAULT_PASS: ${OPENCLAW_RABBITMQ_PASSWORD:-openclaw-rabbitmq}
-      RABBITMQ_DEFAULT_VHOST: ${OPENCLAW_RABBITMQ_VHOST:-/openclaw}
+      RABBITMQ_DEFAULT_VHOST: ${OPENCLAW_RABBITMQ_BOOTSTRAP_VHOST:-/openclaw}
       TZ: ${OPENCLAW_TZ}
     volumes:
       - ./rabbitmq/data:/var/lib/rabbitmq

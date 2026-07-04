@@ -1,19 +1,19 @@
-name: openclaw-app
+name: openclaw-${OPENCLAW_TENANT}
 
 x-openclaw-ports: &openclaw-ports
-  - "${OPENCLAW_GATEWAY_PORT:-127.0.0.1:18789}:18789"
-  - "${OPENCLAW_BRIDGE_PORT:-127.0.0.1:18790}:18790"
-  - "${OPENCLAW_MSTEAMS_PORT:-127.0.0.1:3978}:3978"
+#   - "${OPENCLAW_GATEWAY_PORT:-127.0.0.1:18789}:18789"
+#   - "${OPENCLAW_BRIDGE_PORT:-127.0.0.1:18790}:18790"
+#   - "${OPENCLAW_MSTEAMS_PORT:-127.0.0.1:3978}:3978"
   - "${OPENCLAW_SSH_PORT:-127.0.0.1:2222}:22"
 
   - "${OPENCLAW_WEB_PORT:-127.0.0.1:3001}:3000"
-  - "${OPENCLAW_VITE_PORT:-127.0.0.1:5173}:5173"
+#   - "${OPENCLAW_VITE_PORT:-127.0.0.1:5173}:5173"
   - "${OPENCLAW_API_PORT:-127.0.0.1:8001}:8000"
-  - "${OPENCLAW_ADMIN_PORT:-127.0.0.1:8081}:8080"
-  - "${OPENCLAW_DEBUG_PORT:-127.0.0.1:9229}:9229"
-  - "${OPENCLAW_METRICS_PORT:-127.0.0.1:9090}:9090"
-  - "${OPENCLAW_OBSERVE_AGENT_PORT:-127.0.0.1:8011}:8090"
-  - "${OPENCLAW_ZML_PORT:-127.0.0.1:82}:81"
+#   - "${OPENCLAW_ADMIN_PORT:-127.0.0.1:8081}:8080"
+#   - "${OPENCLAW_DEBUG_PORT:-127.0.0.1:9229}:9229"
+#   - "${OPENCLAW_METRICS_PORT:-127.0.0.1:9090}:9090"
+#   - "${OPENCLAW_OBSERVE_AGENT_PORT:-127.0.0.1:8011}:8090"
+#   - "${OPENCLAW_ZML_PORT:-127.0.0.1:82}:81"
 
 services:
   openclaw-gateway:
@@ -21,15 +21,33 @@ services:
     build:
       context: .
       dockerfile: ${OPENCLAW_DOCKERFILE:-Dockerfile.openclaw-evr-dev}
+      args:
+        NODE_UID: ${OPENCLAW_NODE_UID:-1002}
+        NODE_GID: ${OPENCLAW_NODE_GID:-1002}
     user: ${OPENCLAW_GATEWAY_RUN_USER:-0:0}
     environment:
       HOME: /home/node
       OPENCLAW_HOME: /home/node
+      OPENCLAW_NODE_UID: ${OPENCLAW_NODE_UID:-1002}
+      OPENCLAW_NODE_GID: ${OPENCLAW_NODE_GID:-1002}
+      OPENCLAW_RUNTIME_UID: ${OPENCLAW_RUNTIME_UID:-}
+      OPENCLAW_RUNTIME_GID: ${OPENCLAW_RUNTIME_GID:-}
+      OPENCLAW_SHARED_GROUP: ${OPENCLAW_SHARED_GROUP:-evp}
+      OPENCLAW_SHARED_GID: ${OPENCLAW_SHARED_GID:-}
+      OPENCLAW_TENANT: ${OPENCLAW_TENANT:-default}
       TERM: xterm-256color
-      OPENCLAW_STATE_DIR: /home/node/.openclaw
-      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_POSTGRES_DB: ${OPENCLAW_POSTGRES_DB:-openclaw}
+      OPENCLAW_POSTGRES_USER: ${OPENCLAW_POSTGRES_USER:-openclaw}
+      OPENCLAW_POSTGRES_PASSWORD: ${OPENCLAW_POSTGRES_PASSWORD:-openclaw}
+      OPENCLAW_MINIO_BUCKET: ${OPENCLAW_MINIO_BUCKET:-event-bucket}
+      OPENCLAW_RABBITMQ_VHOST: ${OPENCLAW_RABBITMQ_VHOST:-/openclaw}
+      OPENCLAW_RABBITMQ_USER: ${OPENCLAW_RABBITMQ_USER:-openclaw}
+      OPENCLAW_RABBITMQ_PASSWORD: ${OPENCLAW_RABBITMQ_PASSWORD:-openclaw-rabbitmq}
       OPENCLAW_CONFIG_DIR: /home/node/.openclaw
       OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_AUTH_PROFILE_SECRET_DIR: /home/node/.config/openclaw
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
       CODEX_HOME: /home/node/.openclaw/agents/main/agent/codex-home
       OPENCLAW_CODEX_APP_SERVER_BIN: /usr/local/bin/codex
       OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY: never
@@ -39,9 +57,8 @@ services:
       OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
       OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
       OPENCLAW_REDIS_URL: ${OPENCLAW_REDIS_URL:-redis://redis:6379/0}
-      OPENCLAW_REDIS_HOST: ${OPENCLAW_REDIS_HOST:-redis}
-      OPENCLAW_REDIS_PORT: ${OPENCLAW_REDIS_PORT:-6379}
       OPENCLAW_REDIS_DB: ${OPENCLAW_REDIS_DB:-0}
+      OPENCLAW_REDIS_KEY_PREFIX: ${OPENCLAW_REDIS_KEY_PREFIX:-default:}
       OPENCLAW_REDIS_PASSWORD: ${OPENCLAW_REDIS_PASSWORD:-}
       XDG_CACHE_HOME: /home/node/.openclaw/cache
       npm_config_cache: /home/node/.openclaw/npm-cache
@@ -58,12 +75,14 @@ services:
       LANG: C.UTF-8
       TZ: ${OPENCLAW_TZ:-Asia/Shanghai}
     volumes:
-      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
-      - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR}:/home/node/.config/openclaw
-      - ${OPENCLAW_SSH_DIR:-/home/xcd/.openclaw-docker/ssh}:/home/node/.ssh
-      - ${OPENCLAW_VSCODE_SERVER_DIR:-/home/xcd/.openclaw-docker/vscode-server}:/home/node/.vscode-server
-      - ${OPENCLAW_VSCODE_CODEX_DIR:-/home/xcd/.openclaw-docker/vscode-codex}:/home/node/.codex
+      - ${OPENCLAW_CONFIG_DIR_HOST}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR_HOST}:/home/node/workspace
+      - ${OPENCLAW_PUBLIC_SHARED_GIT_DIR_HOST}:/home/node/public/shared/git
+      - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR_HOST}:/home/node/.config/openclaw
+      - ${OPENCLAW_SSH_DIR_HOST:-${HOME}/.openclaw-docker/ssh}:/home/node/.ssh
+      - ${OPENCLAW_GIT_CREDENTIALS_FILE_HOST:-${HOME}/.openclaw-docker/git-credentials}:/home/node/.git-credentials
+      - ${OPENCLAW_VSCODE_SERVER_DIR_HOST:-${HOME}/.openclaw-docker/vscode-server}:/home/node/.vscode-server
+      - ${OPENCLAW_VSCODE_CODEX_DIR_HOST:-${HOME}/.openclaw-docker/vscode-codex}:/home/node/.codex
     cap_drop:
       - NET_RAW
       - NET_ADMIN
@@ -76,14 +95,18 @@ services:
     init: true
     restart: unless-stopped
     command:
-      [
-        "openclaw",
-        "gateway",
-        "--bind",
-        "${OPENCLAW_GATEWAY_BIND:-lan}",
-        "--port",
-        "18789",
-      ]
+    #   [
+    #     "openclaw",
+    #     "gateway",
+    #     "--bind",
+    #     "${OPENCLAW_GATEWAY_BIND:-lan}",
+    #     "--port",
+    #     "18789",
+    #   ]
+        [
+            "sleep",
+            "infinity"
+        ]
     healthcheck:
       test:
         [
@@ -96,59 +119,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  openclaw-cli:
-    image: ${OPENCLAW_IMAGE:-openclaw-evr-dev:2026.5.28}
-    user: ${OPENCLAW_RUN_USER:-1002:1002}
-    network_mode: "service:openclaw-gateway"
-    environment:
-      HOME: /home/node
-      OPENCLAW_HOME: /home/node
-      TERM: xterm-256color
-      OPENCLAW_STATE_DIR: /home/node/.openclaw
-      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
-      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
-      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
-      CODEX_HOME: /home/node/.openclaw/agents/main/agent/codex-home
-      OPENCLAW_CODEX_APP_SERVER_BIN: /usr/local/bin/codex
-      OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY: never
-      OPENCLAW_CODEX_APP_SERVER_SANDBOX: danger-full-access
-      OPENCLAW_ENABLE_SSHD: "0"
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
-      OPENCLAW_REDIS_URL: ${OPENCLAW_REDIS_URL:-redis://redis:6379/0}
-      OPENCLAW_REDIS_HOST: ${OPENCLAW_REDIS_HOST:-redis}
-      OPENCLAW_REDIS_PORT: ${OPENCLAW_REDIS_PORT:-6379}
-      OPENCLAW_REDIS_DB: ${OPENCLAW_REDIS_DB:-0}
-      OPENCLAW_REDIS_PASSWORD: ${OPENCLAW_REDIS_PASSWORD:-}
-      BROWSER: echo
-      XDG_CACHE_HOME: /home/node/.openclaw/cache
-      npm_config_cache: /home/node/.openclaw/npm-cache
-      PNPM_HOME: /home/node/.openclaw/pnpm
-      GIT_CONFIG_GLOBAL: /home/node/.openclaw/gitconfig
-      HTTP_PROXY: ${http_proxy:-}
-      HTTPS_PROXY: ${https_proxy:-}
-      ALL_PROXY: ${all_proxy:-}
-      NO_PROXY: ${no_proxy:-}
-      http_proxy: ${http_proxy:-}
-      https_proxy: ${https_proxy:-}
-      all_proxy: ${all_proxy:-}
-      no_proxy: ${no_proxy:-}
-      TZ: ${OPENCLAW_TZ:-UTC}
-    volumes:
-      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
-      - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR}:/home/node/.config/openclaw
-      - ${OPENCLAW_SSH_DIR:-/home/xcd/.openclaw-docker/ssh}:/home/node/.ssh
-    security_opt:
-      - seccomp=unconfined
-      - apparmor=unconfined
-    stdin_open: true
-    tty: true
-    init: true
-    entrypoint: ["openclaw"]
-    depends_on:
-      - openclaw-gateway
 
 networks:
   default:
