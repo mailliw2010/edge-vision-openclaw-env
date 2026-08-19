@@ -8,8 +8,9 @@ The container is designed to be disposable. Persistent state is mounted from the
 - Workspace: `${OPENCLAW_WORKSPACE_DIR}`
 - OpenClaw auth profile secrets: `${OPENCLAW_AUTH_PROFILE_SECRET_DIR}`
 - SSH keys/config: `${OPENCLAW_SSH_DIR:-${HOME}/.openclaw-docker/ssh}`
-- Git credentials store: `${OPENCLAW_GIT_CREDENTIALS_FILE_HOST:-${HOME}/.openclaw-docker/git-credentials}`
+- Git credentials store: `/home/node/.openclaw/git-credentials` inside the container, backed by `${OPENCLAW_CONFIG_DIR_HOST}` on the host
 - Codex config and profiles: `${OPENCLAW_VSCODE_CODEX_DIR:-${HOME}/.openclaw-docker/vscode-codex}`
+- npm global prefix for `openclaw`/`codex`: `${OPENCLAW_NPM_GLOBAL_DIR_HOST:-${HOME}/.openclaw-docker/npm-global}`
 
 The gateway container starts as root only long enough to launch `sshd`, align the container `node` UID/GID with the host, add configured supplemental groups such as the shared `evp` Git group, and prepare mounted device/SSH permissions. The OpenClaw process then runs as `node` inside `/home/node`.
 
@@ -46,8 +47,9 @@ chmod 644 "${HOME}/.openclaw-docker/ssh/known_hosts" 2>/dev/null || true
 
 The private key is required for `git pull` over SSH. The `authorized_keys` file is required for SSH login into the container.
 
-If you use `git config --global credential.helper store`, the container now persists
-`~/.git-credentials` to `${HOME}/.openclaw-docker/git-credentials` on the host by default.
+The container configures `credential.helper store --file /home/node/.openclaw/git-credentials`
+at startup so Git writes to a normal file inside the persisted OpenClaw state
+directory instead of the default `~/.git-credentials` mountpoint.
 
 ## Shared Git Permissions
 
@@ -384,6 +386,10 @@ repository root. It loads the root `.env`, creates the configured host mount
 directories, starts middleware, starts the business stack, and then runs
 `init-phase1-middleware.sh`.
 
+It also normalizes the PostgreSQL and RabbitMQ bind-mounted data directories
+as part of `init-phase1-middleware.sh` so the containers can read existing
+state after a host-user change or a fresh clone.
+
 Supported commands:
 
 ```bash
@@ -413,7 +419,7 @@ Key files are:
 - `.env`
 - `middleware/postgres/postgresql.conf`
 - `middleware/postgres/pg_hba.conf`
-- `middleware/minio/minio.env`
+- `middleware/compose.openclaw.middleware.yml`
 - `middleware/rabbitmq/conf.d/10-defaults.conf`
 - `middleware/rabbitmq/enabled_plugins`
 - `middleware/redis/redis.conf`
@@ -550,8 +556,8 @@ docker compose \
 - `OPENCLAW_MSTEAMS_PORT` defaults to `127.0.0.1:3978`.
 - `OPENCLAW_SSH_PORT` defaults to `127.0.0.1:2222`.
 - `OPENCLAW_SSH_DIR_HOST` defaults to `${HOME}/.openclaw-docker/ssh`.
-- `OPENCLAW_GIT_CREDENTIALS_FILE_HOST` defaults to `${HOME}/.openclaw-docker/git-credentials`.
 - `OPENCLAW_VSCODE_CODEX_DIR_HOST` defaults to `${HOME}/.openclaw-docker/vscode-codex`.
+- `OPENCLAW_NPM_GLOBAL_DIR_HOST` defaults to `${HOME}/.openclaw-docker/npm-global`.
 - `OPENCLAW_CODEX_HOME_DIR` defaults to `${HOME}/.openclaw-docker/codex-home`.
 - `OPENCLAW_SHARED_GROUP` defaults to `evp`; `bootstrap-startup.sh` resolves it to `OPENCLAW_SHARED_GID`.
 - `OPENCLAW_SHARED_GID` can be set explicitly when the shared group cannot be resolved by name on the host.

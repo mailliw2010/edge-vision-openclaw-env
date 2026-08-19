@@ -1,0 +1,7 @@
+*.db
+codex-home/
+middleware/minio/data/
+middleware/postgres/data/
+middleware/redis/data/ 
+volume/
+middleware/rabbitmq/data/

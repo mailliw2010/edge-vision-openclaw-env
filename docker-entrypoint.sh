@@ -86,10 +86,58 @@ setup_git_credentials() {
   local owner
   owner="$(runtime_owner)"
 
-  if [ -f /home/node/.git-credentials ]; then
-    chown "$owner" /home/node/.git-credentials
-    chmod 600 /home/node/.git-credentials
+  install -d -o "${owner%%:*}" -g "${owner#*:}" /home/node/.openclaw
+
+  if [ ! -e /home/node/.gitconfig ]; then
+    ln -s /home/node/.openclaw/gitconfig /home/node/.gitconfig
+  elif [ -L /home/node/.gitconfig ] && [ "$(readlink /home/node/.gitconfig)" != "/home/node/.openclaw/gitconfig" ]; then
+    ln -sfn /home/node/.openclaw/gitconfig /home/node/.gitconfig
   fi
+
+  # Keep the symlink itself owned by the runtime user so a root bootstrap does
+  # not leave a root-owned /home/node/.gitconfig behind.
+  chown -h "$owner" /home/node/.gitconfig
+
+  if [ ! -e /home/node/.openclaw/gitconfig ]; then
+    install -o "${owner%%:*}" -g "${owner#*:}" -m 0644 /dev/null /home/node/.openclaw/gitconfig
+  fi
+
+  if [ ! -e /home/node/.openclaw/git-credentials ]; then
+    install -m 600 /dev/null /home/node/.openclaw/git-credentials
+  fi
+
+  chown "$owner" /home/node/.openclaw/git-credentials
+  chmod 600 /home/node/.openclaw/git-credentials
+
+  git config --global credential.helper "store --file /home/node/.openclaw/git-credentials"
+
+  chown "$owner" /home/node/.openclaw/gitconfig
+  chmod 0644 /home/node/.openclaw/gitconfig
+}
+
+setup_npm_global_dir() {
+  local owner
+  owner="$(runtime_owner)"
+
+  # The npm global prefix is a bind mount, so explicitly normalize both the
+  # directory and its bin subdir to the runtime user on every startup.
+  install -d -o "${owner%%:*}" -g "${owner#*:}" \
+    /home/node/.npm-global \
+    /home/node/.npm-global/bin
+}
+
+setup_runtime_path() {
+  case ":$PATH:" in
+    *":/home/node/.npm-global/bin:"*) ;;
+    *) PATH="/home/node/.npm-global/bin:$PATH" ;;
+  esac
+  export PATH
+
+  install -d /etc/profile.d
+  cat >/etc/profile.d/openclaw-path.sh <<'EOF'
+export PATH=/home/node/.npm-global/bin:/home/node/.local/bin:/home/node/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+EOF
+  chmod 0644 /etc/profile.d/openclaw-path.sh
 }
 
 ensure_group_for_gid() {
@@ -166,7 +214,9 @@ if [ "$(id -u)" = "0" ]; then
   fix_node_home_ownership
   setup_shared_group
   setup_device_groups
+  setup_npm_global_dir
   setup_git_credentials
+  setup_runtime_path
   if [ "${OPENCLAW_ENABLE_SSHD:-1}" != "0" ]; then
     start_sshd
   fi

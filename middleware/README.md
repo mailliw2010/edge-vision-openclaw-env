@@ -6,7 +6,8 @@ This directory keeps the middleware stack together:
 - `postgres/postgresql.conf`: PostgreSQL server settings copied from the official image sample
 - `postgres/pg_hba.conf`: PostgreSQL host-based auth copied from the official initdb output and adjusted for OpenClaw access
 - `postgres/data`: PostgreSQL data directory
-- `minio/minio.env`: MinIO runtime configuration
+- MinIO environment variables are injected explicitly from the root `.env`
+  through `compose.openclaw.middleware.yml`
 - `minio/data`: MinIO object data
 - `minio/config`: MinIO config/state
 - `rabbitmq/conf.d/10-defaults.conf`: RabbitMQ configuration
@@ -45,3 +46,7 @@ docker compose \
 If you want the full host-side orchestration flow, run
 [`../bootstrap-startup.sh`](../bootstrap-startup.sh) from the repository root
 instead of invoking middleware directly.
+
+That wrapper also repairs the bind-mounted PostgreSQL and RabbitMQ directory
+permissions inside `init-phase1-middleware.sh`, which avoids `Permission
+denied` errors on existing data under `middleware/postgres/data`.

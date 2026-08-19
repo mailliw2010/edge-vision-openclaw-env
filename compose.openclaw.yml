@@ -24,6 +24,8 @@ services:
       args:
         NODE_UID: ${OPENCLAW_NODE_UID:-1002}
         NODE_GID: ${OPENCLAW_NODE_GID:-1002}
+    env_file:
+      - ./volume/edge-vision-ops/env/edge-vision.generated.env
     user: ${OPENCLAW_GATEWAY_RUN_USER:-0:0}
     environment:
       HOME: /home/node
@@ -79,10 +81,11 @@ services:
       - ${OPENCLAW_WORKSPACE_DIR_HOST}:/home/node/workspace
       - ${OPENCLAW_PUBLIC_SHARED_GIT_DIR_HOST}:/home/node/public/shared/git
       - ${OPENCLAW_AUTH_PROFILE_SECRET_DIR_HOST}:/home/node/.config/openclaw
+      - ./docker-entrypoint.sh:/usr/local/bin/openclaw-docker-entrypoint:ro
       - ${OPENCLAW_SSH_DIR_HOST:-${HOME}/.openclaw-docker/ssh}:/home/node/.ssh
-      - ${OPENCLAW_GIT_CREDENTIALS_FILE_HOST:-${HOME}/.openclaw-docker/git-credentials}:/home/node/.git-credentials
       - ${OPENCLAW_VSCODE_SERVER_DIR_HOST:-${HOME}/.openclaw-docker/vscode-server}:/home/node/.vscode-server
       - ${OPENCLAW_VSCODE_CODEX_DIR_HOST:-${HOME}/.openclaw-docker/vscode-codex}:/home/node/.codex
+      - ${OPENCLAW_NPM_GLOBAL_DIR_HOST:-${HOME}/.openclaw-docker/npm-global}:/home/node/.npm-global
     cap_drop:
       - NET_RAW
       - NET_ADMIN

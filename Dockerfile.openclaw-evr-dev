@@ -13,7 +13,7 @@ ARG NODE_GID=1002
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/home/node/.npm-global/bin:/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV GOPROXY=https://goproxy.cn,direct
 ENV GOSUMDB=sum.golang.google.cn
 
@@ -122,9 +122,15 @@ RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.sources' \) -print
   && test -s "${node_archive}" \
   && tar -xJf "${node_archive}" -C /usr/local --strip-components=1 \
   && rm -f "${node_archive}" \
-  && npm config set registry https://registry.npmmirror.com \
-  && npm install -g "openclaw@${OPENCLAW_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
-  && npm install -g "pnpm@${PNPM_VERSION}" \
+  && groupadd -g "${NODE_GID}" node \
+  && useradd -m -u "${NODE_UID}" -g "${NODE_GID}" -s /bin/bash node \
+  && passwd -d node \
+  && printf '%s\n' 'node ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/node \
+  && chmod 0440 /etc/sudoers.d/node \
+  && install -d -o "${NODE_UID}" -g "${NODE_GID}" /home/node/.npm-global \
+  && gosu node:node bash -lc "npm config set prefix /home/node/.npm-global \
+      && npm config set registry https://registry.npmmirror.com \
+      && npm install -g \"openclaw@${OPENCLAW_VERSION}\" \"@openai/codex@${CODEX_CLI_VERSION}\" \"pnpm@${PNPM_VERSION}\"" \
   && curl -fsSL --retry 5 --retry-all-errors \
        -o /tmp/go.tar.gz \
        "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz" \
@@ -134,11 +140,6 @@ RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.sources' \) -print
       go install "google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}" \
   && GOBIN=/usr/local/bin GOPROXY="${GOPROXY}" GOSUMDB="${GOSUMDB}" \
       go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}" \
-  && groupadd -g "${NODE_GID}" node \
-  && useradd -m -u "${NODE_UID}" -g "${NODE_GID}" -s /bin/bash node \
-  && passwd -d node \
-  && printf '%s\n' 'node ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/node \
-  && chmod 0440 /etc/sudoers.d/node \
   && mkdir -p /home/node/.openclaw /home/node/.config/openclaw /run/sshd /etc/ssh/sshd_config.d \
   && printf '%s\n' \
       'PermitRootLogin no' \
@@ -161,6 +162,7 @@ RUN apt-get update \
       locales \
       iproute2 \
       vim \
+      libyaml-cpp-dev \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 

@@ -58,7 +58,7 @@ RUN sed -i \
       'AuthorizedKeysFile .ssh/authorized_keys' \
       'AllowUsers node' \
       'X11Forwarding no' \
-      'AllowTcpForwarding yes' \
+      'AllowTcpForwarding local' \
       'UsePAM no' \
       > /etc/ssh/sshd_config.d/openclaw.conf \
   && chown -R 1002:1002 /home/node \
